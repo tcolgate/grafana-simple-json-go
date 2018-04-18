@@ -18,6 +18,7 @@ package grafanasj
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -56,6 +57,7 @@ func WithGrafanaBasicAuth(user, pass string) Opt {
 // GrafanaSimpleJSON describes a potential source of Grafana data.
 type GrafanaSimpleJSON interface {
 	GrafanaQuery(from, to time.Time, interval time.Duration, maxDPs int, targets []string) (map[string][]Data, error)
+	GrafanaQueryTable(from, to time.Time, interval time.Duration, maxDPs int, targets []string) (map[string]TableColumn, error)
 	GrafanaAnnotations(from, to time.Time, query string) ([]Annotation, error)
 	GrafanaSearch(target string) ([]string, error)
 }
@@ -66,13 +68,20 @@ type Data struct {
 	Value float64
 }
 
+// TableData represents a single table column.
+type TableColumn struct {
+	Type   string
+	Values []interface{}
+}
+
 // Annotation represents an annotation that can be displayed on a graph, or
 // in a table.
 type Annotation struct {
-	Time  SimpleJSONPTime `json:"time"`
-	Title string          `json:"title"`
-	Text  string          `json:"text"`
-	Tags  []string        `json:"tags"`
+	Time    SimpleJSONPTime `json:"time"`
+	TimeEnd SimpleJSONPTime `json:"timeEnd,omitempty"`
+	Title   string          `json:"title"`
+	Text    string          `json:"text"`
+	Tags    []string        `json:"tags"`
 }
 
 func (*sjc) HandleRoot(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +163,8 @@ type simpleJSONRange struct {
 type simpleJSONTarget struct {
 	Target string `json:"target"`
 	RefID  string `json:"refId"`
+	Hide   bool   `json:"hide"`
+	Type   string `json:"type"`
 }
 
 /*
@@ -174,8 +185,8 @@ type simpleJSONTarget struct {
   "interval": "30s",
   "intervalMs": 30000,
   "targets": [
-     { "target": "upper_50", refId: "A" },
-     { "target": "upper_75", refId: "B" }
+    { "target": "upper_50", refId: "A" , "hide": false. "type"; "timeserie"},
+    { "target": "upper_75", refId: "B" }
   ],
   "format": "json",
   "maxDataPoints": 550
@@ -191,6 +202,7 @@ type simpleJSONQuery struct {
 	Targets       []simpleJSONTarget `json:"targets"`
 	Format        string             `json:"format"`
 	MaxDataPoints int                `json:"maxDataPoints"`
+	Type          string             `json:"type"`
 }
 
 /*
@@ -261,6 +273,96 @@ type simpleJSONData struct {
 	DataPoints []simpleJSONDataPoint `json:"datapoints"`
 }
 
+type simpleJSONTableColumn struct {
+	Text string `json:"text"`
+	Type string `json:"type"`
+}
+
+type simpleJSONTableRow []interface{}
+
+type simpleJSONTableData struct {
+	Type    string                  `json:"type"`
+	Columns []simpleJSONTableColumn `json:"columns"`
+	Rows    []simpleJSONTableRow    `json:"rows"`
+}
+
+func (src *sjc) jsonTableQuery(req simpleJSONQuery) (interface{}, error) {
+	ts := []string{}
+	for _, t := range req.Targets {
+		ts = append(ts, t.Target)
+	}
+
+	resp, err := src.GrafanaQueryTable(
+		time.Time(req.Range.From),
+		time.Time(req.Range.To),
+		time.Duration(req.Interval),
+		req.MaxDataPoints,
+		ts)
+	if err != nil {
+		return nil, err
+	}
+
+	var colNames []string
+	rowCount := 0
+	cols := make([]simpleJSONTableColumn, len(resp))
+	for cn, cv := range resp {
+		if rowCount == 0 {
+			rowCount = len(cv.Values)
+		}
+		if len(cv.Values) != rowCount {
+			return nil, errors.New("all columns must be of equal length")
+		}
+		cols = append(cols, simpleJSONTableColumn{Text: cn, Type: cv.Type})
+		colNames = append(colNames, cn)
+	}
+	rows := make([]simpleJSONTableRow, rowCount)
+	for i := 0; i < rowCount; i++ {
+		rows[i] = make([]interface{}, len(colNames))
+		for j, cn := range colNames {
+			rows[i][j] = resp[cn].Values[i]
+		}
+	}
+
+	return simpleJSONTableData{
+		Type:    "table",
+		Columns: cols,
+		Rows:    rows,
+	}, nil
+}
+
+func (src *sjc) jsonQuery(req simpleJSONQuery) (interface{}, error) {
+	ts := []string{}
+	for _, t := range req.Targets {
+		ts = append(ts, t.Target)
+	}
+
+	resp, err := src.GrafanaQuery(
+		time.Time(req.Range.From),
+		time.Time(req.Range.To),
+		time.Duration(req.Interval),
+		req.MaxDataPoints,
+		ts)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]simpleJSONData, len(resp))
+	i := 0
+	for sn, vs := range resp {
+		sort.Slice(vs, func(i, j int) bool { return vs[i].Time.Before(vs[j].Time) })
+		sout := simpleJSONData{Target: sn}
+		for _, v := range vs {
+			sout.DataPoints = append(sout.DataPoints, simpleJSONDataPoint{
+				Time:  SimpleJSONPTime(v.Time),
+				Value: v.Value,
+			})
+		}
+		out[i] = sout
+		i++
+	}
+	return out, nil
+}
+
 func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 	if !src.checkAuth(w, r) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="logsray-reader"`)
@@ -278,35 +380,20 @@ func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ts := []string{}
-	for _, t := range req.Targets {
-		ts = append(ts, t.Target)
-	}
-
-	resp, err := src.GrafanaQuery(
-		time.Time(req.Range.From),
-		time.Time(req.Range.To),
-		time.Duration(req.Interval),
-		req.MaxDataPoints,
-		ts)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	var err error
+	var out interface{}
+	switch req.Type {
+	case "", "timeserie":
+		out, err = src.jsonQuery(req)
+	case "table":
+		out, err = src.jsonTableQuery(req)
+	default:
+		http.Error(w, "unknown query type, timeserie or table", 400)
 		return
 	}
-
-	out := make([]simpleJSONData, len(resp))
-	i := 0
-	for sn, vs := range resp {
-		sort.Slice(vs, func(i, j int) bool { return vs[i].Time.Before(vs[j].Time) })
-		sout := simpleJSONData{Target: sn}
-		for _, v := range vs {
-			sout.DataPoints = append(sout.DataPoints, simpleJSONDataPoint{
-				Time:  SimpleJSONPTime(v.Time),
-				Value: v.Value,
-			})
-		}
-		out[i] = sout
-		i++
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	bs, err := json.Marshal(out)
@@ -439,8 +526,8 @@ func (src *sjc) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Write(bs)
 }
 
-func (sjc *sjc) checkAuth(w http.ResponseWriter, r *http.Request) bool {
-	if sjc.user == "" {
+func (src *sjc) checkAuth(w http.ResponseWriter, r *http.Request) bool {
+	if src.user == "" {
 		return true
 	}
 
@@ -459,7 +546,7 @@ func (sjc *sjc) checkAuth(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	return pair[0] == sjc.user && pair[1] == sjc.pass
+	return pair[0] == src.user && pair[1] == src.pass
 }
 
 type stubIndex struct{}
