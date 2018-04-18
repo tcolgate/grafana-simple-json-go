@@ -24,7 +24,7 @@ import (
 	"time"
 )
 
-// NewSimpleJSONHandler creates a new http.Handler that will answer to
+// New creates a new http.Handler that will answer to
 // the required endpoint for a Grafana SimpleJSON source.
 func New(src GrafanaSimpleJSON, opts ...Opt) *sjc {
 	sjc := &sjc{src, "", ""}
@@ -69,10 +69,10 @@ type Data struct {
 // Annotation represents an annotation that can be displayed on a graph, or
 // in a table.
 type Annotation struct {
-	Time  simpleJSONDPTime `json:"time"`
-	Title string           `json:"title"`
-	Text  string           `json:"text"`
-	Tags  []string         `json:"tags"`
+	Time  SimpleJSONPTime `json:"time"`
+	Title string          `json:"title"`
+	Text  string          `json:"text"`
+	Tags  []string        `json:"tags"`
 }
 
 func (*sjc) HandleRoot(w http.ResponseWriter, r *http.Request) {
@@ -89,14 +89,17 @@ func addCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 }
 
-type simpleJSONTime time.Time
+// SimpleJSONTime is a wrapper for time.Time that reformats for Grafana
+type SimpleJSONTime time.Time
 
-func (sjt *simpleJSONTime) MarshalJSON() ([]byte, error) {
+// MarshalJSON implements JSON marshalling
+func (sjt *SimpleJSONTime) MarshalJSON() ([]byte, error) {
 	out := time.Time(*sjt).Format(time.RFC3339Nano)
 	return json.Marshal(out)
 }
 
-func (sjt *simpleJSONTime) UnmarshalJSON(injs []byte) error {
+// UnmarshalJSON implements JSON unmarshalling
+func (sjt *SimpleJSONTime) UnmarshalJSON(injs []byte) error {
 	in := ""
 	err := json.Unmarshal(injs, &in)
 	if err != nil {
@@ -108,7 +111,7 @@ func (sjt *simpleJSONTime) UnmarshalJSON(injs []byte) error {
 		return err
 	}
 
-	*sjt = simpleJSONTime(t)
+	*sjt = SimpleJSONTime(t)
 
 	return nil
 }
@@ -143,8 +146,8 @@ type simpleJSONRawRange struct {
 }
 
 type simpleJSONRange struct {
-	From simpleJSONTime     `json:"from"`
-	To   simpleJSONTime     `json:"to"`
+	From SimpleJSONTime     `json:"from"`
+	To   SimpleJSONTime     `json:"to"`
 	Raw  simpleJSONRawRange `json:"raw"`
 }
 
@@ -209,14 +212,14 @@ type simpleJSONQuery struct {
 ]
 */
 
-type simpleJSONDPTime time.Time
+type SimpleJSONPTime time.Time
 
-func (sjdpt *simpleJSONDPTime) MarshalJSON() ([]byte, error) {
+func (sjdpt *SimpleJSONPTime) MarshalJSON() ([]byte, error) {
 	out := time.Time(*sjdpt).UnixNano() / 1000000
 	return json.Marshal(out)
 }
 
-func (sjdpt *simpleJSONDPTime) UnmarshalJSON(injs []byte) error {
+func (sjdpt *SimpleJSONPTime) UnmarshalJSON(injs []byte) error {
 	in := int64(0)
 	err := json.Unmarshal(injs, &in)
 	if err != nil {
@@ -225,14 +228,14 @@ func (sjdpt *simpleJSONDPTime) UnmarshalJSON(injs []byte) error {
 
 	t := time.Unix(0, in*1000000)
 
-	*sjdpt = simpleJSONDPTime(t)
+	*sjdpt = SimpleJSONPTime(t)
 
 	return nil
 }
 
 type simpleJSONDataPoint struct {
-	Value float64          `json:"value"`
-	Time  simpleJSONDPTime `json:"time"`
+	Value float64         `json:"value"`
+	Time  SimpleJSONPTime `json:"time"`
 }
 
 func (sjdp *simpleJSONDataPoint) MarshalJSON() ([]byte, error) {
@@ -248,7 +251,7 @@ func (sjdp *simpleJSONDataPoint) UnmarshalJSON(injs []byte) error {
 	}
 	*sjdp = simpleJSONDataPoint{}
 	sjdp.Value = in[0]
-	sjdp.Time = simpleJSONDPTime(time.Unix(0, int64(in[1])*1000000))
+	sjdp.Time = SimpleJSONPTime(time.Unix(0, int64(in[1])*1000000))
 
 	return nil
 }
@@ -298,7 +301,7 @@ func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		sout := simpleJSONData{Target: sn}
 		for _, v := range vs {
 			sout.DataPoints = append(sout.DataPoints, simpleJSONDataPoint{
-				Time:  simpleJSONDPTime(v.Time),
+				Time:  SimpleJSONPTime(v.Time),
 				Value: v.Value,
 			})
 		}
@@ -469,7 +472,7 @@ func (stubIndex) Query(from, to time.Time, interval time.Duration, maxDPs int, t
 }
 
 func (stubIndex) Annotations(from, to time.Time, query string) ([]Annotation, error) {
-	ann := Annotation{Time: simpleJSONDPTime(time.Now().Add(-5 * time.Minute)), Title: "thing happened", Tags: []string{"some", "tag", "spose"}}
+	ann := Annotation{Time: SimpleJSONPTime(time.Now().Add(-5 * time.Minute)), Title: "thing happened", Tags: []string{"some", "tag", "spose"}}
 	ann.Text = "more text in here"
 	return []Annotation{ann}, nil
 }
