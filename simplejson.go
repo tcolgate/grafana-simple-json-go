@@ -18,6 +18,7 @@
 package grafanasj
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -59,10 +60,10 @@ func WithGrafanaBasicAuth(user, pass string) Opt {
 
 // GrafanaSimpleJSON describes a potential source of Grafana data.
 type GrafanaSimpleJSON interface {
-	GrafanaQuery(from, to time.Time, interval time.Duration, maxDPs int, target string) ([]Data, error)
-	GrafanaQueryTable(from, to time.Time, target string) ([]TableColumn, error)
-	GrafanaAnnotations(from, to time.Time, query string) ([]Annotation, error)
-	GrafanaSearch(target string) ([]string, error)
+	GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]Data, error)
+	GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]TableColumn, error)
+	GrafanaAnnotations(ctx context.Context, from, to time.Time, query string) ([]Annotation, error)
+	GrafanaSearch(ctx context.Context, target string) ([]string, error)
 }
 
 // Data represents a single datapoint at a given point in time.
@@ -290,8 +291,9 @@ type simpleJSONTableData struct {
 	Rows    []simpleJSONTableRow    `json:"rows"`
 }
 
-func (src *sjc) jsonTableQuery(req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+func (src *sjc) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := src.GrafanaQueryTable(
+		ctx,
 		time.Time(req.Range.From),
 		time.Time(req.Range.To),
 		target.Target)
@@ -325,8 +327,9 @@ func (src *sjc) jsonTableQuery(req simpleJSONQuery, target simpleJSONTarget) (in
 	}, nil
 }
 
-func (src *sjc) jsonQuery(req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+func (src *sjc) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := src.GrafanaQuery(
+		ctx,
 		time.Time(req.Range.From),
 		time.Time(req.Range.To),
 		time.Duration(req.Interval),
@@ -355,6 +358,7 @@ func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("401 Unauthorized\n"))
 		return
 	}
+	ctx := r.Context()
 
 	addCORS(w)
 
@@ -372,9 +376,9 @@ func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		var res interface{}
 		switch target.Type {
 		case "", "timeserie":
-			res, err = src.jsonQuery(req, target)
+			res, err = src.jsonQuery(ctx, req, target)
 		case "table":
-			res, err = src.jsonTableQuery(req, target)
+			res, err = src.jsonTableQuery(ctx, req, target)
 		default:
 			http.Error(w, "unknown query type, timeserie or table", 400)
 			return
@@ -440,6 +444,7 @@ type simpleJSONAnnotationsQuery struct {
 }
 
 func (src *sjc) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	addCORS(w)
 
 	if r.Method == http.MethodOptions {
@@ -462,7 +467,7 @@ func (src *sjc) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := []simpleJSONAnnotationResponse{}
-	anns, err := src.GrafanaAnnotations(time.Time(req.Range.From), time.Time(req.Range.To), req.Annotation.Query)
+	anns, err := src.GrafanaAnnotations(ctx, time.Time(req.Range.From), time.Time(req.Range.To), req.Annotation.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -499,6 +504,7 @@ func (src *sjc) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("401 Unauthorized\n"))
 		return
 	}
+	ctx := r.Context()
 
 	addCORS(w)
 
@@ -509,7 +515,7 @@ func (src *sjc) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := src.GrafanaSearch(req.Target)
+	resp, err := src.GrafanaSearch(ctx, req.Target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
