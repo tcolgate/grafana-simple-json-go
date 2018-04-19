@@ -13,12 +13,15 @@
 // Package logspray is a collection of tools for streaming and indexing
 // large volumes of dynamic logs.
 
+// Package grafanasj eases the creation HTTP endpoints to support Grafana's
+// simplejson data source.
 package grafanasj
 
 import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -43,7 +46,7 @@ type sjc struct {
 	user, pass string
 }
 
-// Opt provides configurable option support for the SimpleJSON handler
+// Opt provides configurable option support for the SimpleJSON handlernd
 type Opt func(*sjc) error
 
 // WithGrafanaBasicAuth sets basic auth params for the simpleJson endpoint
@@ -56,8 +59,8 @@ func WithGrafanaBasicAuth(user, pass string) Opt {
 
 // GrafanaSimpleJSON describes a potential source of Grafana data.
 type GrafanaSimpleJSON interface {
-	GrafanaQuery(from, to time.Time, interval time.Duration, maxDPs int, targets []string) (map[string][]Data, error)
-	GrafanaQueryTable(from, to time.Time, interval time.Duration, maxDPs int, targets []string) (map[string]TableColumn, error)
+	GrafanaQuery(from, to time.Time, interval time.Duration, maxDPs int, target string) ([]Data, error)
+	GrafanaQueryTable(from, to time.Time, target string) ([]TableColumn, error)
 	GrafanaAnnotations(from, to time.Time, query string) ([]Annotation, error)
 	GrafanaSearch(target string) ([]string, error)
 }
@@ -68,8 +71,10 @@ type Data struct {
 	Value float64
 }
 
-// TableData represents a single table column.
+// TableColumn represents a single table column. Types of the Values
+// slive are not verified to be compatible with the selected type.
 type TableColumn struct {
+	Text   string
 	Type   string
 	Values []interface{}
 }
@@ -77,11 +82,11 @@ type TableColumn struct {
 // Annotation represents an annotation that can be displayed on a graph, or
 // in a table.
 type Annotation struct {
-	Time    SimpleJSONPTime `json:"time"`
-	TimeEnd SimpleJSONPTime `json:"timeEnd,omitempty"`
-	Title   string          `json:"title"`
-	Text    string          `json:"text"`
-	Tags    []string        `json:"tags"`
+	Time    time.Time `json:"time"`
+	TimeEnd time.Time `json:"timeEnd,omitempty"`
+	Title   string    `json:"title"`
+	Text    string    `json:"text"`
+	Tags    []string  `json:"tags"`
 }
 
 func (*sjc) HandleRoot(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +207,6 @@ type simpleJSONQuery struct {
 	Targets       []simpleJSONTarget `json:"targets"`
 	Format        string             `json:"format"`
 	MaxDataPoints int                `json:"maxDataPoints"`
-	Type          string             `json:"type"`
 }
 
 /*
@@ -224,14 +228,14 @@ type simpleJSONQuery struct {
 ]
 */
 
-type SimpleJSONPTime time.Time
+type simpleJSONPTime time.Time
 
-func (sjdpt *SimpleJSONPTime) MarshalJSON() ([]byte, error) {
+func (sjdpt *simpleJSONPTime) MarshalJSON() ([]byte, error) {
 	out := time.Time(*sjdpt).UnixNano() / 1000000
 	return json.Marshal(out)
 }
 
-func (sjdpt *SimpleJSONPTime) UnmarshalJSON(injs []byte) error {
+func (sjdpt *simpleJSONPTime) UnmarshalJSON(injs []byte) error {
 	in := int64(0)
 	err := json.Unmarshal(injs, &in)
 	if err != nil {
@@ -240,14 +244,14 @@ func (sjdpt *SimpleJSONPTime) UnmarshalJSON(injs []byte) error {
 
 	t := time.Unix(0, in*1000000)
 
-	*sjdpt = SimpleJSONPTime(t)
+	*sjdpt = simpleJSONPTime(t)
 
 	return nil
 }
 
 type simpleJSONDataPoint struct {
 	Value float64         `json:"value"`
-	Time  SimpleJSONPTime `json:"time"`
+	Time  simpleJSONPTime `json:"time"`
 }
 
 func (sjdp *simpleJSONDataPoint) MarshalJSON() ([]byte, error) {
@@ -263,7 +267,7 @@ func (sjdp *simpleJSONDataPoint) UnmarshalJSON(injs []byte) error {
 	}
 	*sjdp = simpleJSONDataPoint{}
 	sjdp.Value = in[0]
-	sjdp.Time = SimpleJSONPTime(time.Unix(0, int64(in[1])*1000000))
+	sjdp.Time = simpleJSONPTime(time.Unix(0, int64(in[1])*1000000))
 
 	return nil
 }
@@ -286,40 +290,31 @@ type simpleJSONTableData struct {
 	Rows    []simpleJSONTableRow    `json:"rows"`
 }
 
-func (src *sjc) jsonTableQuery(req simpleJSONQuery) (interface{}, error) {
-	ts := []string{}
-	for _, t := range req.Targets {
-		ts = append(ts, t.Target)
-	}
-
+func (src *sjc) jsonTableQuery(req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := src.GrafanaQueryTable(
 		time.Time(req.Range.From),
 		time.Time(req.Range.To),
-		time.Duration(req.Interval),
-		req.MaxDataPoints,
-		ts)
+		target.Target)
 	if err != nil {
 		return nil, err
 	}
 
-	var colNames []string
 	rowCount := 0
-	cols := make([]simpleJSONTableColumn, len(resp))
-	for cn, cv := range resp {
+	var cols []simpleJSONTableColumn
+	for _, cv := range resp {
 		if rowCount == 0 {
 			rowCount = len(cv.Values)
 		}
 		if len(cv.Values) != rowCount {
 			return nil, errors.New("all columns must be of equal length")
 		}
-		cols = append(cols, simpleJSONTableColumn{Text: cn, Type: cv.Type})
-		colNames = append(colNames, cn)
+		cols = append(cols, simpleJSONTableColumn{Text: cv.Text, Type: cv.Type})
 	}
 	rows := make([]simpleJSONTableRow, rowCount)
 	for i := 0; i < rowCount; i++ {
-		rows[i] = make([]interface{}, len(colNames))
-		for j, cn := range colNames {
-			rows[i][j] = resp[cn].Values[i]
+		rows[i] = make([]interface{}, len(resp))
+		for j := range resp {
+			rows[i][j] = resp[j].Values[i]
 		}
 	}
 
@@ -330,36 +325,26 @@ func (src *sjc) jsonTableQuery(req simpleJSONQuery) (interface{}, error) {
 	}, nil
 }
 
-func (src *sjc) jsonQuery(req simpleJSONQuery) (interface{}, error) {
-	ts := []string{}
-	for _, t := range req.Targets {
-		ts = append(ts, t.Target)
-	}
-
+func (src *sjc) jsonQuery(req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := src.GrafanaQuery(
 		time.Time(req.Range.From),
 		time.Time(req.Range.To),
 		time.Duration(req.Interval),
 		req.MaxDataPoints,
-		ts)
+		target.Target)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]simpleJSONData, len(resp))
-	i := 0
-	for sn, vs := range resp {
-		sort.Slice(vs, func(i, j int) bool { return vs[i].Time.Before(vs[j].Time) })
-		sout := simpleJSONData{Target: sn}
-		for _, v := range vs {
-			sout.DataPoints = append(sout.DataPoints, simpleJSONDataPoint{
-				Time:  SimpleJSONPTime(v.Time),
-				Value: v.Value,
-			})
-		}
-		out[i] = sout
-		i++
+	sort.Slice(resp, func(i, j int) bool { return resp[i].Time.Before(resp[j].Time) })
+	out := simpleJSONData{Target: target.Target}
+	for _, v := range resp {
+		out.DataPoints = append(out.DataPoints, simpleJSONDataPoint{
+			Time:  simpleJSONPTime(v.Time),
+			Value: v.Value,
+		})
 	}
+
 	return out, nil
 }
 
@@ -380,20 +365,25 @@ func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("query: %#v", req)
 	var err error
-	var out interface{}
-	switch req.Type {
-	case "", "timeserie":
-		out, err = src.jsonQuery(req)
-	case "table":
-		out, err = src.jsonTableQuery(req)
-	default:
-		http.Error(w, "unknown query type, timeserie or table", 400)
-		return
-	}
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+	var out []interface{}
+	for _, target := range req.Targets {
+		var res interface{}
+		switch target.Type {
+		case "", "timeserie":
+			res, err = src.jsonQuery(req, target)
+		case "table":
+			res, err = src.jsonTableQuery(req, target)
+		default:
+			http.Error(w, "unknown query type, timeserie or table", 400)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		out = append(out, res)
 	}
 
 	bs, err := json.Marshal(out)
@@ -436,7 +426,11 @@ type simpleJSONAnnotation struct {
 
 type simpleJSONAnnotationResponse struct {
 	ReqAnnotation simpleJSONAnnotation `json:"annotation"`
-	Annotation
+	Time          simpleJSONPTime      `json:"time"`
+	TimeEnd       simpleJSONPTime      `json:"timeEnd,omitempty"`
+	Title         string               `json:"title"`
+	Text          string               `json:"text"`
+	Tags          []string             `json:"tags"`
 }
 
 type simpleJSONAnnotationsQuery struct {
@@ -477,7 +471,11 @@ func (src *sjc) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 	for i := range anns {
 		resp = append(resp, simpleJSONAnnotationResponse{
 			ReqAnnotation: req.Annotation,
-			Annotation:    anns[i],
+			Time:          simpleJSONPTime(anns[i].Time),
+			TimeEnd:       simpleJSONPTime(anns[i].TimeEnd),
+			Title:         anns[i].Title,
+			Text:          anns[i].Text,
+			Tags:          anns[i].Tags,
 		})
 	}
 
@@ -547,23 +545,4 @@ func (src *sjc) checkAuth(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	return pair[0] == src.user && pair[1] == src.pass
-}
-
-type stubIndex struct{}
-
-func (stubIndex) Query(from, to time.Time, interval time.Duration, maxDPs int, targets []string) (map[string][]Data, error) {
-	return map[string][]Data{
-		"thing1": []Data{{Time: time.Now(), Value: 4.0}},
-		"thing2": []Data{{Time: time.Now(), Value: 5.0}},
-	}, nil
-}
-
-func (stubIndex) Annotations(from, to time.Time, query string) ([]Annotation, error) {
-	ann := Annotation{Time: SimpleJSONPTime(time.Now().Add(-5 * time.Minute)), Title: "thing happened", Tags: []string{"some", "tag", "spose"}}
-	ann.Text = "more text in here"
-	return []Annotation{ann}, nil
-}
-
-func (stubIndex) Search(target string) ([]string, error) {
-	return []string{"thing1", "thing2"}, nil
 }
