@@ -22,7 +22,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -31,28 +30,30 @@ import (
 
 // New creates a new http.Handler that will answer to
 // the required endpoint for a Grafana SimpleJSON source.
-func New(src GrafanaSimpleJSON, opts ...Opt) *sjc {
-	sjc := &sjc{src, "", ""}
+func New(src GrafanaSimpleJSON, opts ...Opt) *SJC {
+	SJC := &SJC{src, "", ""}
 	for _, o := range opts {
-		if err := o(sjc); err != nil {
+		if err := o(SJC); err != nil {
 			panic(err)
 		}
 	}
 
-	return sjc
+	return SJC
 }
 
-type sjc struct {
+// SJC Is an opaque type that supports the required HTTP handlers for the
+// Grafana Simple JSON plugin
+type SJC struct {
 	GrafanaSimpleJSON
 	user, pass string
 }
 
 // Opt provides configurable option support for the SimpleJSON handlernd
-type Opt func(*sjc) error
+type Opt func(*SJC) error
 
 // WithGrafanaBasicAuth sets basic auth params for the simpleJson endpoint
 func WithGrafanaBasicAuth(user, pass string) Opt {
-	return func(sjc *sjc) error {
+	return func(sjc *SJC) error {
 		sjc.user, sjc.pass = user, pass
 		return nil
 	}
@@ -90,7 +91,8 @@ type Annotation struct {
 	Tags    []string  `json:"tags"`
 }
 
-func (*sjc) HandleRoot(w http.ResponseWriter, r *http.Request) {
+// HandleRoot serves a plain 200 OK for /, required by grafana
+func (*SJC) HandleRoot(w http.ResponseWriter, r *http.Request) {
 	addCORS(w)
 	if r.URL.Path != "/" {
 		http.Error(w, "File not found", http.StatusNotFound)
@@ -291,7 +293,7 @@ type simpleJSONTableData struct {
 	Rows    []simpleJSONTableRow    `json:"rows"`
 }
 
-func (src *sjc) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+func (src *SJC) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := src.GrafanaQueryTable(
 		ctx,
 		time.Time(req.Range.From),
@@ -327,7 +329,7 @@ func (src *sjc) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target 
 	}, nil
 }
 
-func (src *sjc) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+func (src *SJC) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := src.GrafanaQuery(
 		ctx,
 		time.Time(req.Range.From),
@@ -351,7 +353,9 @@ func (src *sjc) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpl
 	return out, nil
 }
 
-func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
+// HandleQuery hands the /query endpoint, calling the appropriate timeserie
+// or table handler.
+func (src *SJC) HandleQuery(w http.ResponseWriter, r *http.Request) {
 	if !src.checkAuth(w, r) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="logsray-reader"`)
 		w.WriteHeader(401)
@@ -369,7 +373,6 @@ func (src *sjc) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("query: %#v", req)
 	var err error
 	var out []interface{}
 	for _, target := range req.Targets {
@@ -431,7 +434,7 @@ type simpleJSONAnnotation struct {
 type simpleJSONAnnotationResponse struct {
 	ReqAnnotation simpleJSONAnnotation `json:"annotation"`
 	Time          simpleJSONPTime      `json:"time"`
-	TimeEnd       simpleJSONPTime      `json:"timeEnd,omitempty"`
+	RegionID      int                  `json:",omitempty"`
 	Title         string               `json:"title"`
 	Text          string               `json:"text"`
 	Tags          []string             `json:"tags"`
@@ -443,7 +446,8 @@ type simpleJSONAnnotationsQuery struct {
 	Annotation simpleJSONAnnotation `json:"annotation"`
 }
 
-func (src *sjc) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
+// HandleAnnotations responds to the /annotation requests.
+func (src *SJC) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	addCORS(w)
 
@@ -474,14 +478,29 @@ func (src *sjc) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for i := range anns {
-		resp = append(resp, simpleJSONAnnotationResponse{
+		startAnn := simpleJSONAnnotationResponse{
 			ReqAnnotation: req.Annotation,
 			Time:          simpleJSONPTime(anns[i].Time),
-			TimeEnd:       simpleJSONPTime(anns[i].TimeEnd),
 			Title:         anns[i].Title,
 			Text:          anns[i].Text,
 			Tags:          anns[i].Tags,
-		})
+		}
+		if !anns[i].TimeEnd.IsZero() {
+			startAnn.RegionID = i
+		}
+		resp = append(resp, startAnn)
+
+		if !anns[i].TimeEnd.IsZero() {
+			endAnn := simpleJSONAnnotationResponse{
+				ReqAnnotation: req.Annotation,
+				Time:          simpleJSONPTime(anns[i].TimeEnd),
+				Title:         anns[i].Title,
+				Text:          anns[i].Text,
+				Tags:          anns[i].Tags,
+				RegionID:      i,
+			}
+			resp = append(resp, endAnn)
+		}
 	}
 
 	bs, err := json.Marshal(resp)
@@ -497,7 +516,8 @@ type simpleJSONSearchQuery struct {
 	Target string
 }
 
-func (src *sjc) HandleSearch(w http.ResponseWriter, r *http.Request) {
+// HandleSearch implements the /search endpoint.
+func (src *SJC) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	if !src.checkAuth(w, r) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="logsray-reader"`)
 		w.WriteHeader(401)
@@ -530,7 +550,7 @@ func (src *sjc) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Write(bs)
 }
 
-func (src *sjc) checkAuth(w http.ResponseWriter, r *http.Request) bool {
+func (src *SJC) checkAuth(w http.ResponseWriter, r *http.Request) bool {
 	if src.user == "" {
 		return true
 	}
