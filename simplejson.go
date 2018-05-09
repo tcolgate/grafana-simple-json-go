@@ -434,7 +434,7 @@ type simpleJSONAnnotation struct {
 type simpleJSONAnnotationResponse struct {
 	ReqAnnotation simpleJSONAnnotation `json:"annotation"`
 	Time          simpleJSONPTime      `json:"time"`
-	RegionID      int                  `json:",omitempty"`
+	RegionID      int                  `json:"regionId,omitempty"`
 	Title         string               `json:"title"`
 	Text          string               `json:"text"`
 	Tags          []string             `json:"tags"`
