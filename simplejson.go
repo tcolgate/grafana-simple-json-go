@@ -73,11 +73,12 @@ type Data struct {
 	Value float64
 }
 
-// TableColumn represents a single table column. Types of the Values
-// slive are not verified to be compatible with the selected type.
+// TableColumn represents a single table column. Valid Types are
+// "string", "time", and "number". Types of the Values
+// slice are not verified to be compatible with the selected type.
 type TableColumn struct {
 	Text   string
-	Type   string
+	Type   string // "number", "time" or "string"
 	Values []interface{}
 }
 
