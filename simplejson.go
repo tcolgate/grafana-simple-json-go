@@ -106,17 +106,17 @@ func addCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 }
 
-// SimpleJSONTime is a wrapper for time.Time that reformats for Grafana
-type SimpleJSONTime time.Time
+// simpleJSONTime is a wrapper for time.Time that reformats for Grafana
+type simpleJSONTime time.Time
 
 // MarshalJSON implements JSON marshalling
-func (sjt *SimpleJSONTime) MarshalJSON() ([]byte, error) {
+func (sjt *simpleJSONTime) MarshalJSON() ([]byte, error) {
 	out := time.Time(*sjt).Format(time.RFC3339Nano)
 	return json.Marshal(out)
 }
 
 // UnmarshalJSON implements JSON unmarshalling
-func (sjt *SimpleJSONTime) UnmarshalJSON(injs []byte) error {
+func (sjt *simpleJSONTime) UnmarshalJSON(injs []byte) error {
 	in := ""
 	err := json.Unmarshal(injs, &in)
 	if err != nil {
@@ -128,7 +128,7 @@ func (sjt *SimpleJSONTime) UnmarshalJSON(injs []byte) error {
 		return err
 	}
 
-	*sjt = SimpleJSONTime(t)
+	*sjt = simpleJSONTime(t)
 
 	return nil
 }
@@ -163,8 +163,8 @@ type simpleJSONRawRange struct {
 }
 
 type simpleJSONRange struct {
-	From SimpleJSONTime     `json:"from"`
-	To   SimpleJSONTime     `json:"to"`
+	From simpleJSONTime     `json:"from"`
+	To   simpleJSONTime     `json:"to"`
 	Raw  simpleJSONRawRange `json:"raw"`
 }
 
