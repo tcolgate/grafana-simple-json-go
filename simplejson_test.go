@@ -1,4 +1,4 @@
-package grafanasj_test
+package simplejson_test
 
 import (
 	"bytes"
@@ -9,31 +9,31 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/tcolgate/grafanasj"
+	"github.com/tcolgate/grafana-simple-json-go"
 )
 
 // GSJExample demonstrates how to create a new Grafana Simple JSON compatible
 // HTTP server.
 type GSJExample struct{}
 
-// GrafanaQuery handles timeseri type queries.
-func (GSJExample) GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]grafanasj.Data, error) {
-	return []grafanasj.Data{
+// GrafanaQuery handles timeserie type queries.
+func (GSJExample) GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]simplejson.DataPoint, error) {
+	return []simplejson.DataPoint{
 		{Time: time.Now().Add(-5 * time.Second), Value: 1234.0},
 		{Time: time.Now(), Value: 1500.0},
 	}, nil
 }
 
-func (GSJExample) GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]grafanasj.TableColumn, error) {
-	return []grafanasj.TableColumn{
-		{Text: "Time", Data: grafanasj.TimeColumn{time.Now()}},
-		{Text: "SomeText", Data: grafanasj.StringColumn{"blah"}},
-		{Text: "Value", Data: grafanasj.NumberColumn{1.0}},
+func (GSJExample) GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]simplejson.TableColumn, error) {
+	return []simplejson.TableColumn{
+		{Text: "Time", Data: simplejson.TimeColumn{time.Now()}},
+		{Text: "SomeText", Data: simplejson.StringColumn{"blah"}},
+		{Text: "Value", Data: simplejson.NumberColumn{1.0}},
 	}, nil
 }
 
-func (GSJExample) GrafanaAnnotations(ctx context.Context, from, to time.Time, query string) ([]grafanasj.Annotation, error) {
-	return []grafanasj.Annotation{
+func (GSJExample) GrafanaAnnotations(ctx context.Context, from, to time.Time, query string) ([]simplejson.Annotation, error) {
+	return []simplejson.Annotation{
 		// A single point in time annotation
 		{
 			Time:  time.Unix(1234, 0),
@@ -56,21 +56,19 @@ func (GSJExample) GrafanaSearch(ctx context.Context, target string) ([]string, e
 }
 
 func Example() {
-	gsj := grafanasj.New(GSJExample{})
+	gsj := simplejson.New(
+		simplejson.WithQuerier(GSJExample{}),
+		simplejson.WithTableQuerier(GSJExample{}),
+		simplejson.WithSearcher(GSJExample{}),
+		simplejson.WithAnnotator(GSJExample{}),
+	)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/query", gsj.HandleQuery)
-	mux.HandleFunc("/annotations", gsj.HandleAnnotations)
-	mux.HandleFunc("/search", gsj.HandleSearch)
-	// This is just a convenience if your / doesn't return 200
-	mux.HandleFunc("/", gsj.HandleRoot)
-
-	// This is the format of the inbound request from grafana
+	// This is the format of the inbound request from Grafana
 	reqBuf := bytes.NewBufferString(`{"range": { "from": "2016-04-15T13:44:39.070Z", "to": "2016-04-15T14:44:39.070Z" }, "rangeRaw": { "from": "now-1h", "to": "now" },"annotation": {"name":"query","datasource":"yoursjsource","query":"some query","enable":true,"iconColor":"#1234"}}`)
 	req := httptest.NewRequest(http.MethodGet, "/annotations", reqBuf)
 	w := httptest.NewRecorder()
 
-	mux.ServeHTTP(w, req)
+	gsj.ServeHTTP(w, req)
 	res := w.Result()
 
 	buf := &bytes.Buffer{}

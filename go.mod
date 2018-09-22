@@ -1,1 +1,1 @@
-module github.com/tcolgate/grafanasj
+module github.com/tcolgate/grafana-simple-json-go

@@ -13,62 +13,110 @@
 // Package logspray is a collection of tools for streaming and indexing
 // large volumes of dynamic logs.
 
-// Package grafanasj eases the creation HTTP endpoints to support Grafana's
-// simplejson data source.
-package grafanasj
+// Package simplejson eases the creation of HTTP endpoints to support Grafana's
+// simplejson data source plugin.
+package simplejson
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
-	"strings"
 	"time"
 )
 
-// New creates a new http.Handler that will answer to
-// the required endpoint for a Grafana SimpleJSON source.
-func New(src GrafanaSimpleJSON, opts ...Opt) *SJC {
-	SJC := &SJC{src, "", ""}
+// Handler Is an opaque type that supports the required HTTP handlers for the
+// Simple JSON plugin
+type Handler struct {
+	query       Querier
+	tableQuery  TableQuerier
+	annotations Annotator
+	search      Searcher
+
+	mux *http.ServeMux
+}
+
+// New creates a new http.Handler that will answer to the required endpoint for
+// a SimpleJSON source. You should use WithQuerier, WithTableQuerier,
+// WithAnnotator and WithSearch to set handlers for each of the endpionts.
+func New(opts ...Opt) *Handler {
+	mux := http.NewServeMux()
+	Handler := &Handler{
+		mux: mux,
+	}
+
+	mux.HandleFunc("/", Handler.HandleRoot)
+	mux.HandleFunc("/query", Handler.HandleQuery)
+	mux.HandleFunc("/annotations", Handler.HandleAnnotations)
+	mux.HandleFunc("/search", Handler.HandleSearch)
+
 	for _, o := range opts {
-		if err := o(SJC); err != nil {
+		if err := o(Handler); err != nil {
 			panic(err)
 		}
 	}
 
-	return SJC
+	return Handler
 }
 
-// SJC Is an opaque type that supports the required HTTP handlers for the
-// Grafana Simple JSON plugin
-type SJC struct {
-	GrafanaSimpleJSON
-	user, pass string
-}
-
-// Opt provides configurable option support for the SimpleJSON handlernd
-type Opt func(*SJC) error
-
-// WithGrafanaBasicAuth sets basic auth params for the simpleJson endpoint
-func WithGrafanaBasicAuth(user, pass string) Opt {
-	return func(sjc *SJC) error {
-		sjc.user, sjc.pass = user, pass
+// WithQuerier adds a timeserie query handler.
+func WithQuerier(q Querier) Opt {
+	return func(sjc *Handler) error {
+		sjc.query = q
 		return nil
 	}
 }
 
-// GrafanaSimpleJSON describes a potential source of Grafana data.
-type GrafanaSimpleJSON interface {
-	GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]Data, error)
+// WithTableQuerier adds a table query handler.
+func WithTableQuerier(q TableQuerier) Opt {
+	return func(sjc *Handler) error {
+		sjc.tableQuery = q
+		return nil
+	}
+}
+
+// WithAnnotator adds an annoations handler.
+func WithAnnotator(a Annotator) Opt {
+	return func(sjc *Handler) error {
+		sjc.annotations = a
+		return nil
+	}
+}
+
+// WithSearcher adds a search handlers.
+func WithSearcher(s Searcher) Opt {
+	return func(sjc *Handler) error {
+		sjc.search = s
+		return nil
+	}
+}
+
+// Opt provides configurable options for the Handler
+type Opt func(*Handler) error
+
+// A Querier responds to timeseri queries from Grafana
+type Querier interface {
+	GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]DataPoint, error)
+}
+
+// A TableQuerier responds to table queries from Grafana
+type TableQuerier interface {
 	GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]TableColumn, error)
+}
+
+// An Annotator responds to queries for annotations from Grafana
+type Annotator interface {
 	GrafanaAnnotations(ctx context.Context, from, to time.Time, query string) ([]Annotation, error)
+}
+
+// A Searcher responds to search queries from Grafana
+type Searcher interface {
 	GrafanaSearch(ctx context.Context, target string) ([]string, error)
 }
 
-// Data represents a single datapoint at a given point in time.
-type Data struct {
+// DataPoint represents a single datapoint at a given point in time.
+type DataPoint struct {
 	Time  time.Time
 	Value float64
 }
@@ -97,9 +145,8 @@ type TableColumnData interface {
 	simpleJSONColumn()
 }
 
-// TableColumn represents a single table column. Valid Types are
-// "string", "time", and "number". Types of the Values
-// slice are not verified to be compatible with the selected type.
+// TableColumn represents a single table column. Data should
+// be one the NumberColumn, StringColumn or TimeColumn types.
 type TableColumn struct {
 	Text string
 	Data TableColumnData
@@ -115,22 +162,15 @@ type Annotation struct {
 	Tags    []string  `json:"tags"`
 }
 
-// HandleRoot serves a plain 200 OK for /, required by grafana
-func (*SJC) HandleRoot(w http.ResponseWriter, r *http.Request) {
-	addCORS(w)
+// HandleRoot serves a plain 200 OK for /, required by Grafana
+func (*Handler) HandleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.Error(w, "File not found", http.StatusNotFound)
 	}
 	w.Write([]byte("OK"))
 }
 
-func addCORS(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Headers", "accept, content-type")
-	w.Header().Set("Access-Control-Allow-Methods", "POST")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-}
-
-// simpleJSONTime is a wrapper for time.Time that reformats for Grafana
+// simpleJSONTime is a wrapper for time.Time that reformats for
 type simpleJSONTime time.Time
 
 // MarshalJSON implements JSON marshalling
@@ -317,8 +357,8 @@ type simpleJSONTableData struct {
 	Rows    []simpleJSONTableRow    `json:"rows"`
 }
 
-func (src *SJC) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
-	resp, err := src.GrafanaQueryTable(
+func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+	resp, err := h.tableQuery.GrafanaQueryTable(
 		ctx,
 		time.Time(req.Range.From),
 		time.Time(req.Range.To),
@@ -383,8 +423,8 @@ func (src *SJC) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target 
 	}, nil
 }
 
-func (src *SJC) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
-	resp, err := src.GrafanaQuery(
+func (h *Handler) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+	resp, err := h.query.GrafanaQuery(
 		ctx,
 		time.Time(req.Range.From),
 		time.Time(req.Range.To),
@@ -409,16 +449,8 @@ func (src *SJC) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpl
 
 // HandleQuery hands the /query endpoint, calling the appropriate timeserie
 // or table handler.
-func (src *SJC) HandleQuery(w http.ResponseWriter, r *http.Request) {
-	if !src.checkAuth(w, r) {
-		w.Header().Set("WWW-Authenticate", `Basic realm="logsray-reader"`)
-		w.WriteHeader(401)
-		w.Write([]byte("401 Unauthorized\n"))
-		return
-	}
+func (h *Handler) HandleQuery(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	addCORS(w)
 
 	req := simpleJSONQuery{}
 	dec := json.NewDecoder(r.Body)
@@ -433,9 +465,17 @@ func (src *SJC) HandleQuery(w http.ResponseWriter, r *http.Request) {
 		var res interface{}
 		switch target.Type {
 		case "", "timeserie":
-			res, err = src.jsonQuery(ctx, req, target)
+			if h.query == nil {
+				http.Error(w, "timeserie query not implemented", http.StatusBadRequest)
+				return
+			}
+			res, err = h.jsonQuery(ctx, req, target)
 		case "table":
-			res, err = src.jsonTableQuery(ctx, req, target)
+			if h.tableQuery == nil {
+				http.Error(w, "table query not implemented", http.StatusBadRequest)
+				return
+			}
+			res, err = h.jsonTableQuery(ctx, req, target)
 		default:
 			http.Error(w, "unknown query type, timeserie or table", 400)
 			return
@@ -501,19 +541,16 @@ type simpleJSONAnnotationsQuery struct {
 }
 
 // HandleAnnotations responds to the /annotation requests.
-func (src *SJC) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	addCORS(w)
-
-	if r.Method == http.MethodOptions {
-		w.Write([]byte("Allow: POST,OPTIONS"))
+func (h *Handler) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
+	if h.annotations == nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusBadRequest)
 		return
 	}
 
-	if !src.checkAuth(w, r) {
-		w.Header().Set("WWW-Authenticate", `Basic realm="logsray-reader"`)
-		w.WriteHeader(401)
-		w.Write([]byte("401 Unauthorized\n"))
+	ctx := r.Context()
+
+	if r.Method == http.MethodOptions {
+		w.Write([]byte("Allow: POST,OPTIONS"))
 		return
 	}
 
@@ -525,7 +562,7 @@ func (src *SJC) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := []simpleJSONAnnotationResponse{}
-	anns, err := src.GrafanaAnnotations(ctx, time.Time(req.Range.From), time.Time(req.Range.To), req.Annotation.Query)
+	anns, err := h.annotations.GrafanaAnnotations(ctx, time.Time(req.Range.From), time.Time(req.Range.To), req.Annotation.Query)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -571,16 +608,13 @@ type simpleJSONSearchQuery struct {
 }
 
 // HandleSearch implements the /search endpoint.
-func (src *SJC) HandleSearch(w http.ResponseWriter, r *http.Request) {
-	if !src.checkAuth(w, r) {
-		w.Header().Set("WWW-Authenticate", `Basic realm="logsray-reader"`)
-		w.WriteHeader(401)
-		w.Write([]byte("401 Unauthorized\n"))
+func (h *Handler) HandleSearch(w http.ResponseWriter, r *http.Request) {
+	if h.search == nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusBadRequest)
 		return
 	}
-	ctx := r.Context()
 
-	addCORS(w)
+	ctx := r.Context()
 
 	req := simpleJSONSearchQuery{}
 	dec := json.NewDecoder(r.Body)
@@ -589,7 +623,7 @@ func (src *SJC) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := src.GrafanaSearch(ctx, req.Target)
+	resp, err := h.search.GrafanaSearch(ctx, req.Target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -604,25 +638,8 @@ func (src *SJC) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Write(bs)
 }
 
-func (src *SJC) checkAuth(w http.ResponseWriter, r *http.Request) bool {
-	if src.user == "" {
-		return true
-	}
-
-	s := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
-	if len(s) != 2 {
-		return false
-	}
-
-	b, err := base64.StdEncoding.DecodeString(s[1])
-	if err != nil {
-		return false
-	}
-
-	pair := strings.SplitN(string(b), ":", 2)
-	if len(pair) != 2 {
-		return false
-	}
-
-	return pair[0] == src.user && pair[1] == src.pass
+// ServeHTTP supports the http.Handler interface for a simplejson
+// handler.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.mux.ServeHTTP(w, r)
 }
