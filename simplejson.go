@@ -73,13 +73,36 @@ type Data struct {
 	Value float64
 }
 
+// A NumberColumn holds values for a "number" column in a table.
+type NumberColumn []float64
+
+func (NumberColumn) simpleJSONColumn() {
+}
+
+// A TimeColumn holds values for a "time" column in a table.
+type TimeColumn []time.Time
+
+func (TimeColumn) simpleJSONColumn() {
+}
+
+// A StringColumn holds values for a "string" column in a table.
+type StringColumn []string
+
+func (StringColumn) simpleJSONColumn() {
+}
+
+// TableColumnData is a private interface to this package, you should
+// use one of StringColumn, NumberColumn, or TimeColumn
+type TableColumnData interface {
+	simpleJSONColumn()
+}
+
 // TableColumn represents a single table column. Valid Types are
 // "string", "time", and "number". Types of the Values
 // slice are not verified to be compatible with the selected type.
 type TableColumn struct {
-	Text   string
-	Type   string // "number", "time" or "string"
-	Values []interface{}
+	Text string
+	Data TableColumnData
 }
 
 // Annotation represents an annotation that can be displayed on a graph, or
@@ -307,19 +330,49 @@ func (src *SJC) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target 
 	rowCount := 0
 	var cols []simpleJSONTableColumn
 	for _, cv := range resp {
-		if rowCount == 0 {
-			rowCount = len(cv.Values)
+		var colType string
+		var dataLen int
+		switch data := cv.Data.(type) {
+		case NumberColumn:
+			colType = "number"
+			dataLen = len(data)
+		case StringColumn:
+			colType = "string"
+			dataLen = len(data)
+		case TimeColumn:
+			colType = "time"
+			dataLen = len(data)
+		default:
+			return nil, errors.New("invlalid column type")
 		}
-		if len(cv.Values) != rowCount {
+
+		if rowCount == 0 {
+			rowCount = dataLen
+		}
+		if dataLen != rowCount {
 			return nil, errors.New("all columns must be of equal length")
 		}
-		cols = append(cols, simpleJSONTableColumn{Text: cv.Text, Type: cv.Type})
+		cols = append(cols, simpleJSONTableColumn{Text: cv.Text, Type: colType})
 	}
 	rows := make([]simpleJSONTableRow, rowCount)
 	for i := 0; i < rowCount; i++ {
 		rows[i] = make([]interface{}, len(resp))
-		for j := range resp {
-			rows[i][j] = resp[j].Values[i]
+	}
+
+	for j := range resp {
+		switch data := resp[j].Data.(type) {
+		case NumberColumn:
+			for i := 0; i < rowCount; i++ {
+				rows[i][j] = data[i]
+			}
+		case StringColumn:
+			for i := 0; i < rowCount; i++ {
+				rows[i][j] = data[i]
+			}
+		case TimeColumn:
+			for i := 0; i < rowCount; i++ {
+				rows[i][j] = data[i]
+			}
 		}
 	}
 

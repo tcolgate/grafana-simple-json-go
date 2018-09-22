@@ -26,9 +26,9 @@ func (GSJExample) GrafanaQuery(ctx context.Context, from, to time.Time, interval
 
 func (GSJExample) GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]grafanasj.TableColumn, error) {
 	return []grafanasj.TableColumn{
-		{Text: "Time", Type: "time", Values: []interface{}{time.Now()}},
-		{Text: "SomeText", Type: "string", Values: []interface{}{"blah"}},
-		{Text: "Value", Type: "number", Values: []interface{}{1.0}},
+		{Text: "Time", Data: grafanasj.TimeColumn{time.Now()}},
+		{Text: "SomeText", Data: grafanasj.StringColumn{"blah"}},
+		{Text: "Value", Data: grafanasj.NumberColumn{1.0}},
 	}, nil
 }
 
