@@ -33,7 +33,7 @@ func (GSJExample) GrafanaQueryTable(ctx context.Context, target string, args sim
 	}, nil
 }
 
-func (GSJExample) GrafanaAnnotations(ctx context.Context, from, to time.Time, query string) ([]simplejson.Annotation, error) {
+func (GSJExample) GrafanaAnnotations(ctx context.Context, query string, args simplejson.AnnotationsArguments) ([]simplejson.Annotation, error) {
 	return []simplejson.Annotation{
 		// A single point in time annotation
 		{

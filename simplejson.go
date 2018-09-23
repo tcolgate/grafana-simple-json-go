@@ -178,9 +178,14 @@ type TableQuerier interface {
 	GrafanaQueryTable(ctx context.Context, target string, args QueryArguments) ([]TableColumn, error)
 }
 
+// AnnotationsArguments defines the options to a annotations query.
+type AnnotationsArguments struct {
+	QueryCommonArguments
+}
+
 // An Annotator responds to queries for annotations from Grafana
 type Annotator interface {
-	GrafanaAnnotations(ctx context.Context, from, to time.Time, query string) ([]Annotation, error)
+	GrafanaAnnotations(ctx context.Context, query string, args AnnotationsArguments) ([]Annotation, error)
 }
 
 // A Searcher responds to search queries from Grafana
@@ -658,7 +663,15 @@ func (h *Handler) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := []simpleJSONAnnotationResponse{}
-	anns, err := h.annotations.GrafanaAnnotations(ctx, time.Time(req.Range.From), time.Time(req.Range.To), req.Annotation.Query)
+	anns, err := h.annotations.GrafanaAnnotations(
+		ctx,
+		req.Annotation.Query,
+		AnnotationsArguments{
+			QueryCommonArguments{
+				From: time.Time(req.Range.From),
+				To:   time.Time(req.Range.To),
+			},
+		})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
