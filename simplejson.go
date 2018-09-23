@@ -33,6 +33,7 @@ type Handler struct {
 	tableQuery  TableQuerier
 	annotations Annotator
 	search      Searcher
+	tags        TagSearcher
 
 	mux *http.ServeMux
 }
@@ -50,6 +51,8 @@ func New(opts ...Opt) *Handler {
 	mux.HandleFunc("/query", Handler.HandleQuery)
 	mux.HandleFunc("/annotations", Handler.HandleAnnotations)
 	mux.HandleFunc("/search", Handler.HandleSearch)
+	mux.HandleFunc("/tag-keys", Handler.HandleTagKeys)
+	mux.HandleFunc("/tag-values", Handler.HandleTagValues)
 
 	for _, o := range opts {
 		if err := o(Handler); err != nil {
@@ -92,12 +95,63 @@ func WithSearcher(s Searcher) Opt {
 	}
 }
 
+// WithTagSearcher adds adhoc filter tag  search handlers.
+func WithTagSearcher(s TagSearcher) Opt {
+	return func(sjc *Handler) error {
+		sjc.tags = s
+		return nil
+	}
+}
+
 // Opt provides configurable options for the Handler
 type Opt func(*Handler) error
 
 // A Querier responds to timeseri queries from Grafana
 type Querier interface {
 	GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]DataPoint, error)
+}
+
+// StringTagKey represent an adhoc query string key.
+type StringTagKey string
+
+// TagInfoer is an internal interface to describe difference types of tag.
+type TagInfoer interface {
+	tagName() string
+	tagType() string
+}
+
+func (k StringTagKey) tagName() string {
+	return string(k)
+}
+
+func (k StringTagKey) tagType() string {
+	return "string"
+}
+
+// TagValuer is in an internal interface used to describe tag
+// Values.
+type TagValuer interface {
+	tagValue() json.RawMessage
+}
+
+// StringTagValue represent an adhoc query string key.
+type StringTagValue string
+
+func (k StringTagValue) tagValue() json.RawMessage {
+	// We igore the error here because the following should
+	// always be marshable.
+	bs, _ := json.Marshal(struct {
+		Text string `json:"text"`
+	}{
+		Text: string(k),
+	})
+	return json.RawMessage(bs)
+}
+
+// A TagSearcher allows the querying of tag keys and values for adhoc filters.
+type TagSearcher interface {
+	GrafanaAdhocFilterTags(ctx context.Context) ([]TagInfoer, error)
+	GrafanaAdhocFilterTagValues(ctx context.Context, key string) ([]TagValuer, error)
 }
 
 // A TableQuerier responds to table queries from Grafana
@@ -113,6 +167,14 @@ type Annotator interface {
 // A Searcher responds to search queries from Grafana
 type Searcher interface {
 	GrafanaSearch(ctx context.Context, target string) ([]string, error)
+}
+
+// QueryAdhocFilter describes a user supplied filter to be added to
+// each query target.
+type QueryAdhocFilter struct {
+	Key      string `json:"key"`
+	Operator string `json:"operator"`
+	Value    string `json:"value"`
 }
 
 // DataPoint represents a single datapoint at a given point in time.
@@ -274,6 +336,7 @@ type simpleJSONQuery struct {
 	Targets       []simpleJSONTarget `json:"targets"`
 	Format        string             `json:"format"`
 	MaxDataPoints int                `json:"maxDataPoints"`
+	AdhocFilters  []QueryAdhocFilter `json:"adhocFilters"`
 }
 
 /*
@@ -450,6 +513,11 @@ func (h *Handler) jsonQuery(ctx context.Context, req simpleJSONQuery, target sim
 // HandleQuery hands the /query endpoint, calling the appropriate timeserie
 // or table handler.
 func (h *Handler) HandleQuery(w http.ResponseWriter, r *http.Request) {
+	if h.query == nil && h.tableQuery == nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		return
+	}
+
 	ctx := r.Context()
 
 	req := simpleJSONQuery{}
@@ -630,6 +698,91 @@ func (h *Handler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	bs, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(bs)
+}
+
+type simpleJSONTagKeysQuery struct{}
+
+type simpleJSONQueryAdhocKey struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// HandleTagKeys implements the /tag-keys endpoint.
+func (h *Handler) HandleTagKeys(w http.ResponseWriter, r *http.Request) {
+	if h.tags == nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	req := simpleJSONTagKeysQuery{}
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	tags, err := h.tags.GrafanaAdhocFilterTags(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var allTags []simpleJSONQueryAdhocKey
+	for _, tag := range tags {
+		allTags = append(allTags, simpleJSONQueryAdhocKey{
+			Type: tag.tagType(),
+			Text: tag.tagName(),
+		})
+	}
+
+	bs, err := json.Marshal(allTags)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(bs)
+}
+
+type simpleJSONTagValuesQuery struct {
+	Key string `json:"key"`
+}
+
+// HandleTagValues implements the /tag-values endpoint.
+func (h *Handler) HandleTagValues(w http.ResponseWriter, r *http.Request) {
+	if h.tags == nil {
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	req := simpleJSONTagValuesQuery{}
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	vals, err := h.tags.GrafanaAdhocFilterTagValues(ctx, req.Key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var allVals []json.RawMessage
+	for _, val := range vals {
+		allVals = append(allVals, val.tagValue())
+	}
+
+	bs, err := json.Marshal(allVals)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
