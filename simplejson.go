@@ -225,7 +225,7 @@ type Annotation struct {
 }
 
 // HandleRoot serves a plain 200 OK for /, required by Grafana
-func (*Handler) HandleRoot(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.Error(w, "File not found", http.StatusNotFound)
 	}
