@@ -106,9 +106,28 @@ func WithTagSearcher(s TagSearcher) Opt {
 // Opt provides configurable options for the Handler
 type Opt func(*Handler) error
 
+// QueryCommonArguments describes the arguments common to timeserie and
+// table queries.
+type QueryCommonArguments struct {
+	From, To time.Time
+	Filters  []QueryAdhocFilter
+}
+
+// QueryArguments defines the options to a timeserie query.
+type QueryArguments struct {
+	QueryCommonArguments
+	Interval time.Duration
+	MaxDPs   int
+}
+
+// TableQueryArguments defines the options to a table query.
+type TableQueryArguments struct {
+	QueryCommonArguments
+}
+
 // A Querier responds to timeseri queries from Grafana
 type Querier interface {
-	GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]DataPoint, error)
+	GrafanaQuery(ctx context.Context, target string, args QueryArguments) ([]DataPoint, error)
 }
 
 // StringTagKey represent an adhoc query string key.
@@ -156,7 +175,7 @@ type TagSearcher interface {
 
 // A TableQuerier responds to table queries from Grafana
 type TableQuerier interface {
-	GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]TableColumn, error)
+	GrafanaQueryTable(ctx context.Context, target string, args QueryArguments) ([]TableColumn, error)
 }
 
 // An Annotator responds to queries for annotations from Grafana
@@ -423,9 +442,14 @@ type simpleJSONTableData struct {
 func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := h.tableQuery.GrafanaQueryTable(
 		ctx,
-		time.Time(req.Range.From),
-		time.Time(req.Range.To),
-		target.Target)
+		target.Target,
+		QueryArguments{
+			QueryCommonArguments: QueryCommonArguments{
+				From: time.Time(req.Range.From),
+				To:   time.Time(req.Range.To),
+			},
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -489,11 +513,15 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 func (h *Handler) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
 	resp, err := h.query.GrafanaQuery(
 		ctx,
-		time.Time(req.Range.From),
-		time.Time(req.Range.To),
-		time.Duration(req.Interval),
-		req.MaxDataPoints,
-		target.Target)
+		target.Target,
+		QueryArguments{
+			QueryCommonArguments: QueryCommonArguments{
+				From: time.Time(req.Range.From),
+				To:   time.Time(req.Range.To),
+			},
+			Interval: time.Duration(req.Interval),
+			MaxDPs:   req.MaxDataPoints,
+		})
 	if err != nil {
 		return nil, err
 	}

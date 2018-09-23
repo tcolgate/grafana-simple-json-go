@@ -18,16 +18,16 @@ import (
 type GSJExample struct{}
 
 // GrafanaQuery handles timeserie type queries.
-func (GSJExample) GrafanaQuery(ctx context.Context, from, to time.Time, interval time.Duration, maxDPs int, target string) ([]simplejson.DataPoint, error) {
+func (GSJExample) GrafanaQuery(ctx context.Context, target string, args simplejson.QueryArguments) ([]simplejson.DataPoint, error) {
 	return []simplejson.DataPoint{
-		{Time: to.Add(-5 * time.Second), Value: 1234.0},
-		{Time: to, Value: 1500.0},
+		{Time: args.To.Add(-5 * time.Second), Value: 1234.0},
+		{Time: args.To, Value: 1500.0},
 	}, nil
 }
 
-func (GSJExample) GrafanaQueryTable(ctx context.Context, from, to time.Time, target string) ([]simplejson.TableColumn, error) {
+func (GSJExample) GrafanaQueryTable(ctx context.Context, target string, args simplejson.QueryArguments) ([]simplejson.TableColumn, error) {
 	return []simplejson.TableColumn{
-		{Text: "Time", Data: simplejson.TimeColumn{to}},
+		{Text: "Time", Data: simplejson.TimeColumn{args.To}},
 		{Text: "SomeText", Data: simplejson.StringColumn{"blah"}},
 		{Text: "Value", Data: simplejson.NumberColumn{1.0}},
 	}, nil
