@@ -207,32 +207,32 @@ type DataPoint struct {
 	Value float64
 }
 
-// A NumberColumn holds values for a "number" column in a table.
-type NumberColumn []float64
+// A TableNumberColumn holds values for a "number" column in a table.
+type TableNumberColumn []float64
 
-func (NumberColumn) simpleJSONColumn() {
+func (TableNumberColumn) simpleJSONColumn() {
 }
 
-// A TimeColumn holds values for a "time" column in a table.
-type TimeColumn []time.Time
+// A TableTimeColumn holds values for a "time" column in a table.
+type TableTimeColumn []time.Time
 
-func (TimeColumn) simpleJSONColumn() {
+func (TableTimeColumn) simpleJSONColumn() {
 }
 
-// A StringColumn holds values for a "string" column in a table.
-type StringColumn []string
+// A TableStringColumn holds values for a "string" column in a table.
+type TableStringColumn []string
 
-func (StringColumn) simpleJSONColumn() {
+func (TableStringColumn) simpleJSONColumn() {
 }
 
 // TableColumnData is a private interface to this package, you should
-// use one of StringColumn, NumberColumn, or TimeColumn
+// use one of TableStringColumn, TableNumberColumn, or TableTimeColumn
 type TableColumnData interface {
 	simpleJSONColumn()
 }
 
 // TableColumn represents a single table column. Data should
-// be one the NumberColumn, StringColumn or TimeColumn types.
+// be one the TableNumberColumn, TableStringColumn or TableTimeColumn types.
 type TableColumn struct {
 	Text string
 	Data TableColumnData
@@ -465,13 +465,13 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 		var colType string
 		var dataLen int
 		switch data := cv.Data.(type) {
-		case NumberColumn:
+		case TableNumberColumn:
 			colType = "number"
 			dataLen = len(data)
-		case StringColumn:
+		case TableStringColumn:
 			colType = "string"
 			dataLen = len(data)
-		case TimeColumn:
+		case TableTimeColumn:
 			colType = "time"
 			dataLen = len(data)
 		default:
@@ -493,15 +493,15 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 
 	for j := range resp {
 		switch data := resp[j].Data.(type) {
-		case NumberColumn:
+		case TableNumberColumn:
 			for i := 0; i < rowCount; i++ {
 				rows[i][j] = data[i]
 			}
-		case StringColumn:
+		case TableStringColumn:
 			for i := 0; i < rowCount; i++ {
 				rows[i][j] = data[i]
 			}
-		case TimeColumn:
+		case TableTimeColumn:
 			for i := 0; i < rowCount; i++ {
 				rows[i][j] = data[i]
 			}
