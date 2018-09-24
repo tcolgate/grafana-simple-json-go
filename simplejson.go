@@ -63,6 +63,30 @@ func New(opts ...Opt) *Handler {
 	return Handler
 }
 
+// WithSource will attempt to use the datasource provided as
+// a Querier, TableQuerier, Annotator, Searcher and TagSearch
+// if it supports the required interface.
+func WithSource(src interface{}) Opt {
+	return func(sjc *Handler) error {
+		if q, ok := src.(Querier); ok {
+			sjc.query = q
+		}
+		if tq, ok := src.(TableQuerier); ok {
+			sjc.tableQuery = tq
+		}
+		if a, ok := src.(Annotator); ok {
+			sjc.annotations = a
+		}
+		if s, ok := src.(Searcher); ok {
+			sjc.search = s
+		}
+		if ts, ok := src.(TagSearcher); ok {
+			sjc.tags = ts
+		}
+		return nil
+	}
+}
+
 // WithQuerier adds a timeserie query handler.
 func WithQuerier(q Querier) Opt {
 	return func(sjc *Handler) error {
