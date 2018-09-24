@@ -58,14 +58,14 @@ func (GSJExample) GrafanaSearch(ctx context.Context, target string) ([]string, e
 
 func (GSJExample) GrafanaAdhocFilterTags(ctx context.Context) ([]simplejson.TagInfoer, error) {
 	return []simplejson.TagInfoer{
-		simplejson.StringTagKey("mykey"),
+		simplejson.TagStringKey("mykey"),
 	}, nil
 }
 
 func (GSJExample) GrafanaAdhocFilterTagValues(ctx context.Context, key string) ([]simplejson.TagValuer, error) {
 	return []simplejson.TagValuer{
-		simplejson.StringTagValue("value1"),
-		simplejson.StringTagValue("value2"),
+		simplejson.TagStringValue("value1"),
+		simplejson.TagStringValue("value2"),
 	}, nil
 }
 

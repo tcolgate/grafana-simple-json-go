@@ -154,20 +154,20 @@ type Querier interface {
 	GrafanaQuery(ctx context.Context, target string, args QueryArguments) ([]DataPoint, error)
 }
 
-// StringTagKey represent an adhoc query string key.
-type StringTagKey string
-
 // TagInfoer is an internal interface to describe difference types of tag.
 type TagInfoer interface {
 	tagName() string
 	tagType() string
 }
 
-func (k StringTagKey) tagName() string {
+// TagStringKey represent an adhoc query string key.
+type TagStringKey string
+
+func (k TagStringKey) tagName() string {
 	return string(k)
 }
 
-func (k StringTagKey) tagType() string {
+func (k TagStringKey) tagType() string {
 	return "string"
 }
 
@@ -177,10 +177,10 @@ type TagValuer interface {
 	tagValue() json.RawMessage
 }
 
-// StringTagValue represent an adhoc query string key.
-type StringTagValue string
+// TagStringValue represent an adhoc query string key.
+type TagStringValue string
 
-func (k StringTagValue) tagValue() json.RawMessage {
+func (k TagStringValue) tagValue() json.RawMessage {
 	// We igore the error here because the following should
 	// always be marshable.
 	bs, _ := json.Marshal(struct {
