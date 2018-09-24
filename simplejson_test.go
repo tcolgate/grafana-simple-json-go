@@ -25,7 +25,7 @@ func (GSJExample) GrafanaQuery(ctx context.Context, target string, args simplejs
 	}, nil
 }
 
-func (GSJExample) GrafanaQueryTable(ctx context.Context, target string, args simplejson.QueryArguments) ([]simplejson.TableColumn, error) {
+func (GSJExample) GrafanaQueryTable(ctx context.Context, target string, args simplejson.TableQueryArguments) ([]simplejson.TableColumn, error) {
 	return []simplejson.TableColumn{
 		{Text: "Time", Data: simplejson.TableTimeColumn{args.To}},
 		{Text: "SomeText", Data: simplejson.TableStringColumn{"blah"}},

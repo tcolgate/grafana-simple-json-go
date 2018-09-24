@@ -199,7 +199,7 @@ type TagSearcher interface {
 
 // A TableQuerier responds to table queries from Grafana
 type TableQuerier interface {
-	GrafanaQueryTable(ctx context.Context, target string, args QueryArguments) ([]TableColumn, error)
+	GrafanaQueryTable(ctx context.Context, target string, args TableQueryArguments) ([]TableColumn, error)
 }
 
 // AnnotationsArguments defines the options to a annotations query.
@@ -472,7 +472,7 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 	resp, err := h.tableQuery.GrafanaQueryTable(
 		ctx,
 		target.Target,
-		QueryArguments{
+		TableQueryArguments{
 			QueryCommonArguments: QueryCommonArguments{
 				From: time.Time(req.Range.From),
 				To:   time.Time(req.Range.To),
