@@ -475,8 +475,9 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 		target.Target,
 		TableQueryArguments{
 			QueryCommonArguments: QueryCommonArguments{
-				From: time.Time(req.Range.From),
-				To:   time.Time(req.Range.To),
+				From:    time.Time(req.Range.From),
+				To:      time.Time(req.Range.To),
+				Filters: req.AdhocFilters,
 			},
 		},
 	)
@@ -546,8 +547,9 @@ func (h *Handler) jsonQuery(ctx context.Context, req simpleJSONQuery, target sim
 		target.Target,
 		QueryArguments{
 			QueryCommonArguments: QueryCommonArguments{
-				From: time.Time(req.Range.From),
-				To:   time.Time(req.Range.To),
+				From:    time.Time(req.Range.From),
+				To:      time.Time(req.Range.To),
+				Filters: req.AdhocFilters,
 			},
 			Interval: time.Duration(req.Interval),
 			MaxDPs:   req.MaxDataPoints,
