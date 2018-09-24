@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -782,7 +781,6 @@ type simpleJSONQueryAdhocKey struct {
 // HandleTagKeys implements the /tag-keys endpoint.
 func (h *Handler) HandleTagKeys(w http.ResponseWriter, r *http.Request) {
 	if h.tags == nil {
-		log.Printf("not found ")
 		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
