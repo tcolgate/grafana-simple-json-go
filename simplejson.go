@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"sort"
 	"time"
@@ -771,8 +772,6 @@ func (h *Handler) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	w.Write(bs)
 }
 
-type simpleJSONTagKeysQuery struct{}
-
 type simpleJSONQueryAdhocKey struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
@@ -781,18 +780,12 @@ type simpleJSONQueryAdhocKey struct {
 // HandleTagKeys implements the /tag-keys endpoint.
 func (h *Handler) HandleTagKeys(w http.ResponseWriter, r *http.Request) {
 	if h.tags == nil {
-		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusBadRequest)
+		log.Printf("not found ")
+		http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 		return
 	}
 
 	ctx := r.Context()
-
-	req := simpleJSONTagKeysQuery{}
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 
 	tags, err := h.tags.GrafanaAdhocFilterTags(ctx)
 	if err != nil {
