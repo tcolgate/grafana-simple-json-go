@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/grafana-simple-json-go"
+	simplejson "github.com/tcolgate/grafana-simple-json-go"
 )
 
 func TestWithQuerier(t *testing.T) {

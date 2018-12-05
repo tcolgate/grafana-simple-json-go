@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/grafana-simple-json-go"
+	simplejson "github.com/tcolgate/grafana-simple-json-go"
 )
 
 // GSJExample demonstrates how to create a new Grafana Simple JSON compatible
