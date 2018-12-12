@@ -703,6 +703,7 @@ func (h *Handler) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	regionID := 1
 	for i := range anns {
 		startAnn := simpleJSONAnnotationResponse{
 			ReqAnnotation: req.Annotation,
@@ -712,7 +713,7 @@ func (h *Handler) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 			Tags:          anns[i].Tags,
 		}
 		if !anns[i].TimeEnd.IsZero() {
-			startAnn.RegionID = i
+			startAnn.RegionID = regionID
 		}
 		resp = append(resp, startAnn)
 
@@ -723,9 +724,10 @@ func (h *Handler) HandleAnnotations(w http.ResponseWriter, r *http.Request) {
 				Title:         anns[i].Title,
 				Text:          anns[i].Text,
 				Tags:          anns[i].Tags,
-				RegionID:      i,
+				RegionID:      regionID,
 			}
 			resp = append(resp, endAnn)
+			regionID++
 		}
 	}
 
