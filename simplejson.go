@@ -645,11 +645,10 @@ func (h *Handler) HandleQuery(w http.ResponseWriter, r *http.Request) {
 */
 
 type simpleJSONAnnotation struct {
-	Name       string `json:"name"`
-	Datasource string `json:"datasource"`
-	Query      string `json:"query"`
-	Enable     bool   `json:"enable"`
-	IconColor  string `json:"iconColor"`
+	Name      string `json:"name"`
+	Query     string `json:"query"`
+	Enable    bool   `json:"enable"`
+	IconColor string `json:"iconColor"`
 }
 
 type simpleJSONAnnotationResponse struct {
