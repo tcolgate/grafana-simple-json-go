@@ -102,7 +102,7 @@ func TestWithAnnotator(t *testing.T) {
 
 	buf := &bytes.Buffer{}
 	io.Copy(buf, res.Body)
-	expect := `[{"annotation":{"name":"query","datasource":"yoursjsource","query":"some query","enable":true,"iconColor":"#1234"},"time":1234000,"title":"First Title","text":"First annotation","tags":null},{"annotation":{"name":"query","datasource":"yoursjsource","query":"some query","enable":true,"iconColor":"#1234"},"time":1235000,"regionId":1,"title":"Second Title","text":"Second annotation with range","tags":["outage"]},{"annotation":{"name":"query","datasource":"yoursjsource","query":"some query","enable":true,"iconColor":"#1234"},"time":1237000,"regionId":1,"title":"Second Title","text":"Second annotation with range","tags":["outage"]}]`
+	expect := `[{"annotation":{"name":"query","query":"some query","enable":true,"iconColor":"#1234"},"time":1234000,"title":"First Title","text":"First annotation","tags":null},{"annotation":{"name":"query","query":"some query","enable":true,"iconColor":"#1234"},"time":1235000,"regionId":1,"title":"Second Title","text":"Second annotation with range","tags":["outage"]},{"annotation":{"name":"query","query":"some query","enable":true,"iconColor":"#1234"},"time":1237000,"regionId":1,"title":"Second Title","text":"Second annotation with range","tags":["outage"]}]`
 	if buf.String() != expect {
 		t.Fatalf("\nexpected: %q\ngot:%s", expect, buf.String())
 	}
