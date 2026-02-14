@@ -1,3 +1,3 @@
 module github.com/tcolgate/grafana-simple-json-go
 
-go 1.18
+go 1.25

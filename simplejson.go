@@ -66,7 +66,7 @@ func New(opts ...Opt) *Handler {
 // WithSource will attempt to use the datasource provided as
 // a Querier, TableQuerier, Annotator, Searcher and TagSearch
 // if it supports the required interface.
-func WithSource(src interface{}) Opt {
+func WithSource(src any) Opt {
 	return func(sjc *Handler) error {
 		if q, ok := src.(Querier); ok {
 			sjc.query = q
@@ -266,7 +266,7 @@ type TableColumn struct {
 // in a table.
 type Annotation struct {
 	Time    time.Time `json:"time"`
-	TimeEnd time.Time `json:"timeEnd,omitempty"`
+	TimeEnd time.Time `json:"timeEnd"`
 	Title   string    `json:"title"`
 	Text    string    `json:"text"`
 	Tags    []string  `json:"tags"`
@@ -460,7 +460,7 @@ type simpleJSONTableColumn struct {
 	Type string `json:"type"`
 }
 
-type simpleJSONTableRow []interface{}
+type simpleJSONTableRow []any
 
 type simpleJSONTableData struct {
 	Type    string                  `json:"type"`
@@ -468,7 +468,7 @@ type simpleJSONTableData struct {
 	Rows    []simpleJSONTableRow    `json:"rows"`
 }
 
-func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (any, error) {
 	resp, err := h.tableQuery.GrafanaQueryTable(
 		ctx,
 		target.Target,
@@ -513,7 +513,7 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 	}
 	rows := make([]simpleJSONTableRow, rowCount)
 	for i := 0; i < rowCount; i++ {
-		rows[i] = make([]interface{}, len(resp))
+		rows[i] = make([]any, len(resp))
 	}
 
 	for j := range resp {
@@ -540,7 +540,7 @@ func (h *Handler) jsonTableQuery(ctx context.Context, req simpleJSONQuery, targe
 	}, nil
 }
 
-func (h *Handler) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (interface{}, error) {
+func (h *Handler) jsonQuery(ctx context.Context, req simpleJSONQuery, target simpleJSONTarget) (any, error) {
 	resp, err := h.query.GrafanaQuery(
 		ctx,
 		target.Target,
@@ -587,9 +587,9 @@ func (h *Handler) HandleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var err error
-	var out []interface{}
+	var out []any
 	for _, target := range req.Targets {
-		var res interface{}
+		var res any
 		switch target.Type {
 		case "", "timeserie":
 			if h.query == nil {
